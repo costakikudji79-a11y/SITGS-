@@ -1,0 +1,402 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SITGS - Communauté des développeurs</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+:root {
+  --bg:#0b1020;
+  --panel:#151d32;
+  --panel2:#202a43;
+  --purple:#9365ff;
+  --blue:#397bff;
+  --text:#f5f6ff;
+  --muted:#9ca9c5;
+  --border:#2b3854;
+}
+* {box-sizing:border-box;margin:0;padding:0}
+body {
+  background:var(--bg);
+  color:var(--text);
+  font-family:Arial,sans-serif;
+  padding-bottom:75px;
+}
+header {
+  position:sticky;top:0;z-index:10;
+  background:#10182beF;
+  backdrop-filter:blur(12px);
+  padding:17px;
+  border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.logo {font-size:23px;font-weight:bold;color:#a88aff}
+.logo span {color:white}
+.container {max-width:700px;margin:auto;padding:16px}
+h2 {font-size:20px;margin-bottom:15px}
+.card {
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:15px;
+  padding:16px;margin-bottom:16px;
+}
+input,textarea {
+  width:100%;padding:13px;margin:7px 0;
+  border-radius:10px;border:1px solid var(--border);
+  background:#0c1427;color:white;font-size:15px;
+  outline:none;
+}
+textarea {min-height:110px;resize:vertical}
+button {
+  border:0;border-radius:10px;padding:12px 17px;
+  background:var(--purple);color:white;
+  font-weight:bold;cursor:pointer;
+}
+button:disabled {opacity:.5}
+.secondary {background:var(--panel2)}
+.actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.post-header {display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.avatar {
+  width:42px;height:42px;border-radius:50%;
+  background:linear-gradient(135deg,var(--purple),var(--blue));
+  display:grid;place-items:center;font-weight:bold;
+}
+.username {font-weight:bold}
+.date {font-size:12px;color:var(--muted);margin-top:4px}
+.post-content {line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.post-image {width:100%;border-radius:12px;margin-top:12px;max-height:450px;object-fit:cover}
+.comment {background:#202a43;padding:10px;border-radius:9px;margin-top:8px;font-size:14px}
+.comment strong {color:#b69aff}
+.hidden {display:none!important}
+.status {font-size:13px;color:var(--muted);margin-top:10px}
+nav {
+  position:fixed;bottom:0;left:0;width:100%;
+  display:flex;justify-content:space-around;
+  background:#121b30;border-top:1px solid var(--border);
+  padding:13px 5px;z-index:20;
+}
+nav button {background:transparent;padding:8px;color:var(--muted)}
+nav button.active {color:#b69aff}
+.empty {text-align:center;color:var(--muted);padding:25px}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div class="logo">SITGS<span>.</span></div>
+  <button class="secondary" id="logoutBtn" onclick="logout()" hidden>Déconnexion</button>
+</header>
+
+<main class="container">
+
+<section id="authSection" class="card">
+  <h2>Bienvenue sur SITGS</h2>
+  <p class="status">Connecte-toi pour rejoindre la communauté des développeurs.</p>
+  <input id="username" placeholder="Nom d'utilisateur (inscription uniquement)">
+  <input id="email" type="email" placeholder="Adresse e-mail">
+  <input id="password" type="password" placeholder="Mot de passe">
+  <button style="width:100%" onclick="signup()">Créer un compte</button>
+  <button class="secondary" style="width:100%;margin-top:9px" onclick="login()">Se connecter</button>
+  <p id="authMessage" class="status"></p>
+</section>
+
+<section id="appSection" class="hidden">
+  <h2>Fil d'actualité</h2>
+
+  <div class="card">
+    <h3>Créer une publication</h3>
+    <textarea id="postContent" placeholder="Quoi de neuf dans le monde du développement ?"></textarea>
+    <input id="postImage" type="file" accept="image/*">
+    <button id="publishBtn" style="width:100%" onclick="publishPost()">Publier</button>
+    <p id="publishMessage" class="status"></p>
+  </div>
+
+  <div id="feed">
+    <p class="empty">Chargement des publications...</p>
+  </div>
+</section>
+
+</main>
+
+<nav>
+  <button class="active" onclick="showHome(this)">Accueil</button>
+  <button onclick="showHome(this)">Publications</button>
+  <button onclick="showHome(this)">Communauté</button>
+  <button onclick="showHome(this)">Profil</button>
+</nav>
+
+<script>
+// CONFIGURATION SUPABASE
+const SUPABASE_URL = "https://fkvbwnxjjqrbldbnkpyb.supabase.co";
+const SUPABASE_KEY = "sb_publishable_OUvEi3i-1OGeiRjfwIiAAA_r3dU2dVk";
+
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let currentUser = null;
+
+const $ = id => document.getElementById(id);
+
+function message(id,text) {
+  $(id).textContent = text;
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",
+    '"':"&quot;","'":"&#39;"
+  })[c]);
+}
+
+async function signup() {
+  const name = $("username").value.trim();
+  const email = $("email").value.trim();
+  const password = $("password").value;
+
+  if (!name || !email || password.length < 6) {
+    return message("authMessage","Remplis tous les champs. Mot de passe : 6 caractères minimum.");
+  }
+
+  message("authMessage","Création du compte...");
+
+  const {data,error} = await db.auth.signUp({
+    email,password,
+    options:{data:{username:name}}
+  });
+
+  if(error) return message("authMessage",error.message);
+
+  if(!data.session) {
+    return message("authMessage","Compte créé. Vérifie ton e-mail pour confirmer ton inscription.");
+  }
+
+  await checkUser();
+}
+
+async function login() {
+  const email = $("email").value.trim();
+  const password = $("password").value;
+
+  message("authMessage","Connexion...");
+
+  const {error} = await db.auth.signInWithPassword({email,password});
+
+  if(error) return message("authMessage",error.message);
+
+  await checkUser();
+}
+
+async function logout() {
+  const {error} = await db.auth.signOut();
+  if(error) return alert(error.message);
+  currentUser = null;
+  $("appSection").classList.add("hidden");
+  $("authSection").classList.remove("hidden");
+  $("logoutBtn").hidden = true;
+}
+
+async function checkUser() {
+  const {data,error} = await db.auth.getUser();
+
+  if(error || !data.user) {
+    currentUser = null;
+    $("authSection").classList.remove("hidden");
+    $("appSection").classList.add("hidden");
+    $("logoutBtn").hidden = true;
+    return;
+  }
+
+  currentUser = data.user;
+  $("authSection").classList.add("hidden");
+  $("appSection").classList.remove("hidden");
+  $("logoutBtn").hidden = false;
+
+  await loadPosts();
+}
+
+async function publishPost() {
+  if(!currentUser) return;
+
+  const content = $("postContent").value.trim();
+  const file = $("postImage").files[0];
+
+  if(!content && !file) {
+    return message("publishMessage","Écris un message ou ajoute une image.");
+  }
+
+  const btn = $("publishBtn");
+  btn.disabled = true;
+  message("publishMessage","Publication en cours...");
+
+  try {
+    let imageUrl = null;
+
+    if(file) {
+      if(!file.type.startsWith("image/")) throw new Error("Fichier image invalide.");
+      if(file.size > 5 * 1024 * 1024) throw new Error("Image trop lourde (maximum 5 Mo).");
+
+      const ext = file.name.split(".").pop().replace(/[^a-zA-Z0-9]/g,"") || "jpg";
+      const path = currentUser.id + "/" + Date.now() + "." + ext;
+
+      const {error:uploadError} = await db.storage
+        .from("post-images")
+        .upload(path,file,{upsert:false});
+
+      if(uploadError) throw uploadError;
+
+      const {data} = db.storage.from("post-images").getPublicUrl(path);
+      imageUrl = data.publicUrl;
+    }
+
+    const username = currentUser.user_metadata?.username || "Mr INTELLO";
+
+    const {error} = await db.from("posts").insert({
+      user_id:currentUser.id,
+      username,
+      content,
+      image_url:imageUrl
+    });
+
+    if(error) throw error;
+
+    $("postContent").value = "";
+    $("postImage").value = "";
+    message("publishMessage","Publication envoyée !");
+    await loadPosts();
+
+  } catch(error) {
+    message("publishMessage","Erreur : " + error.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadPosts() {
+  const feed = $("feed");
+  feed.innerHTML = '<p class="empty">Chargement...</p>';
+
+  const {data:posts,error} = await db
+    .from("posts")
+    .select("*")
+    .order("created_at",{ascending:false})
+    .limit(50);
+
+  if(error) {
+    feed.textContent = "Erreur de chargement : " + error.message;
+    return;
+  }
+
+  if(!posts.length) {
+    feed.innerHTML = '<p class="empty">Aucune publication pour le moment. Sois le premier à publier !</p>';
+    return;
+  }
+
+  feed.innerHTML = "";
+
+  for(const post of posts) {
+    const {data:likes} = await db.from("post_likes")
+      .select("user_id").eq("post_id",post.id);
+
+    const {data:comments} = await db.from("post_comments")
+      .select("*").eq("post_id",post.id)
+      .order("created_at",{ascending:true});
+
+    const liked = (likes || []).some(x => x.user_id === currentUser.id);
+
+    const article = document.createElement("article");
+    article.className = "card";
+
+    article.innerHTML = `
+      <div class="post-header">
+        <div class="avatar">${escapeHTML((post.username || "S")[0].toUpperCase())}</div>
+        <div>
+          <div class="username">${escapeHTML(post.username || "Développeur")}</div>
+          <div class="date">${new Date(post.created_at).toLocaleString("fr-FR")}</div>
+        </div>
+      </div>
+      <div class="post-content">${escapeHTML(post.content)}</div>
+      ${post.image_url ? `<img class="post-image" src="${escapeHTML(post.image_url)}" alt="Image de publication">` : ""}
+      <div class="actions">
+        <button class="secondary likeBtn">${liked ? "❤️" : "🤍"} ${likes?.length || 0} J'aime</button>
+        ${post.user_id === currentUser.id ? '<button class="secondary deleteBtn">Supprimer</button>' : ""}
+      </div>
+      <div class="comments">
+        ${(comments || []).map(c => `
+          <div class="comment"><strong>${escapeHTML(c.username)} :</strong> ${escapeHTML(c.content)}</div>
+        `).join("")}
+      </div>
+      <div class="actions">
+        <input class="commentInput" placeholder="Écrire un commentaire...">
+        <button class="commentBtn">Envoyer</button>
+      </div>
+    `;
+
+    article.querySelector(".likeBtn").onclick = () => toggleLike(post.id,liked);
+    article.querySelector(".commentBtn").onclick = () => addComment(post.id,article);
+    if(post.user_id === currentUser.id) {
+      article.querySelector(".deleteBtn").onclick = () => deletePost(post.id);
+    }
+
+    feed.appendChild(article);
+  }
+}
+
+async function toggleLike(postId,liked) {
+  if(liked) {
+    const {error} = await db.from("post_likes")
+      .delete().eq("post_id",postId).eq("user_id",currentUser.id);
+    if(error) return alert(error.message);
+  } else {
+    const {error} = await db.from("post_likes").insert({
+      post_id:postId,user_id:currentUser.id
+    });
+    if(error) return alert(error.message);
+  }
+  await loadPosts();
+}
+
+async function addComment(postId,article) {
+  const input = article.querySelector(".commentInput");
+  const content = input.value.trim();
+  if(!content) return;
+
+  const {error} = await db.from("post_comments").insert({
+    post_id:postId,
+    user_id:currentUser.id,
+    username:currentUser.user_metadata?.username || "Mr INTELLO",
+    content
+  });
+
+  if(error) return alert(error.message);
+
+  await loadPosts();
+}
+
+async function deletePost(postId) {
+  if(!confirm("Supprimer cette publication ?")) return;
+
+  const {error} = await db.from("posts")
+    .delete().eq("id",postId).eq("user_id",currentUser.id);
+
+  if(error) return alert(error.message);
+  await loadPosts();
+}
+
+function showHome(button) {
+  document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+  button.classList.add("active");
+  $("appSection").scrollIntoView({behavior:"smooth"});
+}
+
+db.auth.onAuthStateChange(() => {
+  setTimeout(checkUser,0);
+});
+
+checkUser();
+</script>
+
+</body>
+</html>
